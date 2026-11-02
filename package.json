@@ -1,0 +1,81 @@
+{
+  "name": "@snyder-tech/payload-surrealdb",
+  "version": "0.0.0",
+  "description": "SurrealDB database adapter for Payload CMS 4",
+  "keywords": [
+    "cms",
+    "database-adapter",
+    "payload",
+    "payload-plugin",
+    "payloadcms",
+    "surrealdb"
+  ],
+  "homepage": "https://github.com/snyder-tech/payload-surrealdb#readme",
+  "bugs": {
+    "url": "https://github.com/snyder-tech/payload-surrealdb/issues"
+  },
+  "license": "MIT",
+  "author": "Snyder Technologies",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snyder-tech/payload-surrealdb.git"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./internal": {
+      "types": "./dist/exports/internal.d.ts",
+      "import": "./dist/exports/internal.js",
+      "default": "./dist/exports/internal.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "test": "vitest run",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "prepublishOnly": "pnpm build",
+    "changeset": "changeset",
+    "release": "changeset publish"
+  },
+  "dependencies": {
+    "surrealdb": "2.1.1"
+  },
+  "devDependencies": {
+    "@changesets/cli": "3.0.3",
+    "@types/node": "24.19.2",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
+    "payload": "4.0.0-beta.6",
+    "typescript": "6.0.3",
+    "vitest": "5.0.5"
+  },
+  "peerDependencies": {
+    "payload": "4.0.0-beta.6"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.13.0"
+}

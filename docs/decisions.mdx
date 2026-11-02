@@ -1,0 +1,84 @@
+# Design
+
+Why the adapter works the way it does. Change a decision here first, then the code.
+
+Targets: `payload` 4.0.0-beta.6 (exact peer pin), SurrealDB server 3.3.x, SDK `surrealdb` 2.1.1, Node 24 (Payload's test harness pins 24.22.1).
+
+## Shape of the package
+
+- **Base:** a port of `@payloadcms/db-mongodb` at tag `v4.0.0-beta.6`. Keep its file names and layout so an upstream diff of `packages/db-mongodb/src` lines up file for file. Copied code keeps Payload's MIT notice (`LICENSE` plus a `NOTICE` entry).
+- **Adapter name:** `'surrealdb'`. Never `'mongoose'`: Payload's test helpers would reach into mongoose internals.
+- **Factory:** `surrealdbAdapter(args)` exported from the package root. `defaultIDType: 'text'`, `allowIDOnCreate: true`.
+- **Extra method:** `clearDatabase()`, which Payload's test helpers call for non-Mongo/Drizzle adapters.
+
+## Storage
+
+| Payload | SurrealDB |
+|---|---|
+| Collection | Table named by `getDBName` (slug or `dbName`). |
+| Collection versions | `_<name>_versions`, same as Mongo. |
+| Global | One table per global, `_global_<slug>`, single record `_global_<slug>:singleton`. Versions in `_global_<slug>_versions`. The `_global_` prefix cannot clash with a collection slug because Payload slugs cannot start with `_`. |
+| Groups, arrays, blocks, tabs | Embedded objects and arrays, exactly the document Payload hands us. |
+| Localized fields | Embedded `{ en: …, es: … }` objects, as in Mongo. Locale codes with hyphens are escaped in idioms. |
+| Relationships | `RecordId` links; polymorphic as `{ relationTo, value: RecordId }`. |
+| Join fields | Not stored; resolved at read time with correlated subqueries (`$parent.id`), one round trip, paged per parent. Do not port `resolveJoins`. |
+
+- **Schema mode:** SCHEMALESS tables in this release. `connect` runs `DEFINE NAMESPACE/DATABASE IF NOT EXISTS` and `DEFINE TABLE IF NOT EXISTS` for every collection, version table, global and global-version table, because 3.3 throws on selecting a missing table.
+- **IDs:** records are created with server-generated ULID keys (`CREATE <table>:ulid()`), so `ORDER BY id` follows insertion order like Mongo ObjectIds. Client-supplied IDs (`allowIDOnCreate`, `customIDType`) keep their JS type: a number stays a number key and is returned as a number; only safe integers are accepted. Payload sees the bare key, never `table:key`. Always build `RecordId` objects; never `StringRecordId`.
+- **Null:** store `null` as NULL (Mongo parity). Every "missing" check is `(f = NONE OR f = NULL)`. Unknown keys and a top-level `id` are stripped on write.
+- **Defaults on insert:** every insert (`create`, `createVersion`, `createGlobal`, `createGlobalVersion`, the insert side of `upsert`) fills missing fields with their static `defaultValue` exactly as mongoose does, including every locale of a localized field and `[]` for arrays and hasMany fields. Payload's draft read-access relies on `_status` existing in every locale; without this, drafts leak to anonymous readers on localized sites.
+- **Types on write:** ISO date strings for date fields become `Date`; relationship and upload IDs become `RecordId` of the target collection, typed per that collection's ID type; points become `GeometryPoint`. Never store `decimal`.
+- **Types on read:** `DateTime` becomes an ISO string, `RecordId` becomes its bare key (and `{ relationTo, value }` for polymorphic), geometry becomes GeoJSON `{ type: 'Point', coordinates }`, as Mongo returns it; Payload's `afterRead` turns that into `[lng, lat]` (it discards a bare array).
+
+## Writes
+
+- **Updates:** one `SET key = $v` per top-level key. Never `MERGE` (deep merge keeps stale nested keys and removes keys set to `undefined`).
+- `$inc` becomes `f += $n`, `$push` becomes `f += $items`. `options.atomic` becomes a single conditional `UPDATE … WHERE … RETURN AFTER`.
+- Table names cannot be bound with `type::table` in `INSERT`; use a `Table` value or an escaped name.
+- `UPSERT … WHERE` creates a record when nothing matches; use it only where Payload's `upsert` means that.
+
+## Queries
+
+The operator rules are tested in `tests/translate.test.ts`. Rules that must never be broken:
+
+- Every value is a bound parameter; every identifier goes through one escaping function (reserved words like `select`, hyphens, locale codes).
+- Bind typed values: `Date`/`DateTime`, `RecordId`, `Geometry`. A string compared to a datetime or a record link silently matches nothing or everything.
+- `not_equals`, `not_in`, `not_like` keep documents where the field is missing (plain `!=`), as Mongo and Payload's tests expect.
+- Range comparisons are type-guarded (`type::is_number(f) AND f < $v`) so NONE/NULL never match.
+- Functions are guarded against NONE (`string::lowercase(f ?? '')` style); never cast with `<string>`.
+- Arrays and hasMany use `CONTAINS`, `CONTAINSANY`, `CONTAINSALL`, `CONTAINSNONE`, `CONTAINSNOT`; never `?=` (no index) and never `=` on a list.
+- Relationship-path filters (`author.name`) resolve IDs first in the same request (`LET $ids = (SELECT VALUE id …)`; `author IN $ids`). Direct link traversal in `WHERE` is not used: it is wrong for negative operators.
+
+## Sorting and paging
+
+- Default string order is binary, matching Mongo. `COLLATE` only when the user configures `collation`.
+- No nulls-last emulation: SurrealDB already orders missing values like Mongo.
+- Sorting by a relationship path selects it under an alias (`director.name AS __s0`, then `ORDER BY __s0`) and strips the alias from results. Array sort keys use `array::min` ascending and `array::max` descending.
+- Always append `id` as the final tiebreak.
+- `limit: 0` means no `LIMIT` clause. Page and total count run in one request.
+
+## Indexes
+
+- Generated from field config (`index`, `unique`, compound `indexes`, versions `(parent, latest)`, job-queue fields), applied on `connect` with `IF NOT EXISTS`.
+- No `UNIQUE` on fields inside arrays or blocks (SurrealDB enforces it per element across records).
+- Scalar hasMany fields index with `FIELDS f.*`. Do not add a plain index to hasMany relationship fields: on 3.3.2 an index on `f.*` makes `CONTAINS` return nothing. A `unique` hasMany relationship is enforced by `FIELDS f.chain(|$v| array::distinct($v ?? [])) UNIQUE` (a polymorphic one maps each element to its `value` first). Probed on 3.3.2: it indexes the stored links, so enforcement survives deleting a target (`f.*.id` dereferences the link and stopped enforcing); it compares across documents only, because `distinct` lets one document link a target twice as Mongo's multikey index does (every plain form, `f`, `f.*`, `f[*]`, rejects `[a, a]`); `CONTAINS` and the other list operators scan the table, so stay correct; and `chain` runs on a missing or null list, where `f.distinct()` alone fails the write and the index build over older rows.
+- Points are only indexed when `unique` (exact-coordinate uniqueness); SurrealDB 3.3 has no spatial index, so `near`/`within`/`intersects` scan.
+- Keep a map of index name to Payload field path; unique violations arrive as `InternalError` text ``Database index `NAME` already contains …`` and are mapped to `ValidationError` on that path.
+
+## Connections and transactions
+
+- **Node (default, `ws://`/`wss://`):** a pool of 2 to 4 WebSocket connections. Each connection forks sessions with `forkSession()` (never `newSession()`), each session holding fewer than 64 open transactions, behind a semaphore that queues instead of failing.
+- `beginTransaction` stores `{ tx, inFlight }` in `sessions[uuid]` and returns the uuid. Every query through a transaction is tracked; `commitTransaction` awaits in-flight queries first, then commits. On any query error inside a transaction the adapter cancels; it never commits a transaction that saw an error.
+- A reaper cancels transactions open longer than `transactionOptions.timeoutMs` (default 30 s); the server never times them out.
+- On the SDK's `reconnecting` event, drop every transaction entry for that connection (the server has rolled them back).
+- Write conflicts at commit (`isRetryableConflict`) become an `APIError` with status 409. Adapter-internal multi-statement work uses the stateless `db.transaction([...], { retry })`.
+- Always set `requestTimeout` (default 30 s).
+- On Node, the WebSocket is wrapped so that closing it during the handshake does not leak a server connection (`src/connection/closeSafeWebSocket.ts`).
+- **Cloudflare Workers (`http://`/`https://` URL) in this release:** HTTP engine, `beginTransaction` returns `null` so Payload runs without interactive transactions. Per-request WebSocket connections on Workers are not supported yet (a socket cannot be shared across Worker requests).
+- **Bundle:** `fs` (`createMigration`) and `prompts` (`migrateFresh`) are loaded lazily; use `crypto.randomUUID`.
+
+## Testing
+
+- Unit tests (vitest) in `tests/`, including the query translator cases built from `tests/fixtures/semantics.surql`, against a SurrealDB 3.3.x server.
+- Conformance: Payload's own suites via `scripts/conformance/` (`PAYLOAD_DATABASE=surrealdb`), with a skip list and an expected-failures list that only shrinks.
+- Known, accepted differences: `fields/int.spec.ts:5917` (bound parameters make injection-shaped values return nothing instead of throwing) and `localization/int.spec.ts:1673` (embedded locales, Mongo-style fallback) go on the expected-failures list.

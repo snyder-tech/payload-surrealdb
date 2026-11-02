@@ -1,0 +1,45 @@
+name: Release
+
+# Publishes the version in package.json to npm, with provenance. Bump it first: run `pnpm changeset version`
+# and merge the result into develop. `changeset publish` skips a version that is already published.
+# Needs the repository secret NPM_TOKEN: an npm automation or granular token with publish rights on the
+# @snyder-tech scope.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.ref == 'refs/heads/develop'
+    env:
+      SURREAL_TEST_URL: ws://127.0.0.1:8123/rpc
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.22.1'
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - name: Start SurrealDB
+        run: |
+          docker run -d --name surrealdb -p 127.0.0.1:8123:8000 \
+            surrealdb/surrealdb:v3.3.2 start --user root --pass root memory
+          for _ in $(seq 1 60); do
+            docker exec surrealdb /surreal is-ready --endpoint http://127.0.0.1:8000 && exit 0
+            sleep 1
+          done
+          docker logs surrealdb
+          exit 1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+      - name: Publish
+        run: pnpm release
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'

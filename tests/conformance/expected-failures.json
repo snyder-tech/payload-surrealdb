@@ -1,0 +1,128 @@
+[
+  {
+    "file": "test/database/int.spec.ts",
+    "test": "database allow ID on create graphQL - accepts ID on create",
+    "category": "harness-only",
+    "reason": "The test picks a numeric ID for every adapter that is not Mongoose and sends it as a GraphQL Int literal, but a text-ID adapter (`defaultIDType: 'text'`, as Mongo's) types `id` as a GraphQL String, so GraphQL validation rejects it. The local API and REST variants of the test pass. Fixing it means switching to a number default ID type or UUID IDs, which `docs/decisions.mdx` rules out (ULID text keys)."
+  },
+  {
+    "file": "test/database/int.spec.ts",
+    "test": "database drizzle: schema hooks should extend the existing table with composite unique and throw ValidationError on it",
+    "category": "drizzle-only",
+    "reason": "A composite unique index added through Drizzle's `afterSchemaInit`. Compound indexes from the field config are tested in tests/buildSchema.test.ts and tests/uniqueErrors.test.ts."
+  },
+  {
+    "file": "test/database/int.spec.ts",
+    "test": "database drizzle: schema hooks should extend the existing table with extra column and modify the existing column with enforcing DB level length",
+    "category": "drizzle-only",
+    "reason": "Uses Drizzle's `afterSchemaInit`, `db.tables` and `db.execute`. Mongoose returns early; there is no schema to hook in a schemaless document database."
+  },
+  {
+    "file": "test/database/int.spec.ts",
+    "test": "database schema should use custom dbNames",
+    "category": "drizzle-only",
+    "reason": "For any adapter that is not Mongoose the test asserts Drizzle's `payload.db.tables.*` (`customs_rels`, `customs_locales`, `_customs_v`). `dbName` itself is honoured: tests/dbName.test.ts asserts the table names of a collection, a global and their version tables."
+  },
+  {
+    "file": "test/database/int.spec.ts",
+    "test": "database should not allow document creation with relationship data to an invalid document ID",
+    "category": "accepted-difference",
+    "reason": "The test's own comment gives the premise: Mongo needs an ObjectId, Postgres a UUID, SQLite a number, so 'not-real-id' is rejected as a malformed ID. Every string is a valid key of a text-ID collection here. Mongo does not check that the target exists either (`transform.ts` validates only the ID format), so the adapter stores the link as given and Payload leaves an unpopulated link as the bare ID on read (tests/geo.test.ts, 'a relationship to a document that does not exist'). A foreign key check on every write would cost a query per link, and race with the transaction that creates the target."
+  },
+  {
+    "file": "test/fields/int.spec.ts",
+    "test": "Fields json querying should disallow unsafe query values",
+    "category": "accepted-difference",
+    "reason": "Gated `db: 'drizzle'`. Drizzle builds JSON path SQL from the value and rejects `select(` and `\"unsafe`. Every value here is a bound parameter, so such a value is only data and returns no rows instead of throwing (`docs/decisions.mdx`, Testing)."
+  },
+  {
+    "file": "test/joins/hierarchy.int.spec.ts",
+    "test": "Localized hierarchy joins should count and paginate published children once across all locales",
+    "category": "accepted-difference",
+    "reason": "The suite is gated `db: 'drizzle'`. It reads as an anonymous user with `locale: 'all'` under the access rule `_status equals 'published'` on a localized status. With `locale: 'all'` the path becomes `_status.all`, which matches nothing, as in Mongo; Drizzle skips the locale condition instead. Reproduced: the same find returns 1 document for locale 'en' and for an override of access, and 0 for locale 'all' under that access rule."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should match empty nested has-many select fields with exists false",
+    "category": "drizzle-only",
+    "reason": "In SQL an empty hasMany select has no rows, so `exists: false` matches it. A document store holds `[]`, which exists, and Mongo's `$exists: false` does not match it either (`buildExistsQuery`); `details.tags` is filled with `[]` on insert as Mongoose does. The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should reject access paths that are absent from every joined collection",
+    "category": "drizzle-only",
+    "reason": "Expects Drizzle's QueryError message for a path that no joined collection has. The adapter throws its own 400, 'is not a field of'. The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should reject an access value that cannot be normalized",
+    "category": "drizzle-only",
+    "reason": "`id: { in: undefined }` in an access rule must throw 'id.in' in Drizzle's normalizer. Here an undefined operand drops the condition, as in Mongo. The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should reject distinct schema paths that share a flattened field name",
+    "category": "drizzle-only",
+    "reason": "The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should reject nested JSON paths in polymorphic join constraints",
+    "category": "drizzle-only",
+    "reason": "The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should reject nested relationship paths in polymorphic join constraints",
+    "category": "drizzle-only",
+    "reason": "The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should reject polymorphic join constraints for has-many fields in arrays",
+    "category": "drizzle-only",
+    "reason": "The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should reject polymorphic join constraints for incompatible field shapes",
+    "category": "drizzle-only",
+    "reason": "The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should reject polymorphic join constraints for incompatible nested field shapes",
+    "category": "drizzle-only",
+    "reason": "The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should reject polymorphic join constraints for incompatible scalar field shapes",
+    "category": "drizzle-only",
+    "reason": "The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should reject polymorphic join constraints for localized has-many fields",
+    "category": "drizzle-only",
+    "reason": "The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should reject unsupported has-many select access operators",
+    "category": "drizzle-only",
+    "reason": "The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/joins/int.spec.ts",
+    "test": "Joins Field Constrained joins should use exact matching for number like access constraints",
+    "category": "drizzle-only",
+    "reason": "Drizzle turns `like` on a number into an exact match. Mongo's `$regex` never matches a number and so neither does `like` here. The whole 'Constrained joins' block is gated `db: 'drizzle'` and checks that Drizzle's SQL join builder (`buildPolymorphicJoinWhere`) throws a QueryError for a constraint it cannot express in SQL on a polymorphic join. A document store has no such limit: the adapter resolves the constraint with a correlated subquery and returns the result, as Mongo does (Mongo never runs the block)."
+  },
+  {
+    "file": "test/localization/int.spec.ts",
+    "test": "Localization Localization with fallback true Localized - Arrays should allow optional fallback data",
+    "category": "accepted-difference",
+    "reason": "The test expects `null` for Mongoose and the fallback value for every other adapter, because SQL joins cannot tell an unset locale from a null one. Locales are embedded objects here, as in Mongo, so the adapter returns `null` exactly as the Mongoose branch expects (`docs/decisions.mdx`, Testing)."
+  }
+]

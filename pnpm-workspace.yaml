@@ -1,0 +1,4 @@
+# Build scripts are not needed: esbuild ships its binary as an optional dependency and is only a
+# peer of vite, which vitest uses.
+allowBuilds:
+  esbuild: false

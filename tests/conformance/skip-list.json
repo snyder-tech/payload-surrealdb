@@ -1,0 +1,12 @@
+[
+  {
+    "test": "redisKVAdapter",
+    "category": "harness-only",
+    "reason": "Needs a Redis server on :6379. It tests Payload's Redis KV adapter, not the database adapter."
+  },
+  {
+    "test": "migrateToBlocksAsJSON",
+    "category": "drizzle-only",
+    "reason": "Runs `adapter.createMigration` for the Drizzle blocks-as-JSON canned migration, which does not exist for this adapter ('Canned migration blocks-as-json not found'), and the run rewrites tracked files in the Payload checkout (test/database/migrate-to-blocks-as-json/migrations)."
+  }
+]

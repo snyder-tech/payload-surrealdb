@@ -1,0 +1,11 @@
+{
+  "queues": ["test/queues/"],
+  "database-kv": ["test/database/", "test/kv/"],
+  "versions-select-localization": ["test/versions/", "test/select/", "test/localization/"],
+  "relationships-joins-sort-fields": [
+    "test/relationships/",
+    "test/joins/",
+    "test/sort/",
+    "test/fields"
+  ]
+}

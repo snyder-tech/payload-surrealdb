@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop]
+  schedule:
+    # Mondays 06:00 UTC: catches new SurrealDB patch releases and upstream drift.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      payload_tag:
+        description: 'Payload tag to run the conformance suites against (for example v4.0.0-beta.7). Empty uses the tag of the peer dependency.'
+        required: false
+        default: ''
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24.22.1'
+
+jobs:
+  verify:
+    name: verify (SurrealDB ${{ matrix.surrealdb }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        surrealdb: ['3.3.2', '3.3.5']
+    env:
+      # The tests default to ws://127.0.0.1:8123/rpc.
+      SURREAL_TEST_URL: ws://127.0.0.1:8123/rpc
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Start SurrealDB
+        run: |
+          docker run -d --name surrealdb -p 127.0.0.1:8123:8000 \
+            surrealdb/surrealdb:v${{ matrix.surrealdb }} start --user root --pass root memory
+          for _ in $(seq 1 60); do
+            docker exec surrealdb /surreal is-ready --endpoint http://127.0.0.1:8000 && exit 0
+            sleep 1
+          done
+          docker logs surrealdb
+          exit 1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+
+  conformance:
+    name: conformance (${{ matrix.group }})
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          - queues
+          - database-kv
+          - versions-select-localization
+          - relationships-joins-sort-fields
+    env:
+      PAYLOAD_TAG: ${{ inputs.payload_tag }}
+      SURREALDB_VERSION: '3.3.2'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Resolve the pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      # The store, not node_modules: the Payload checkout's lockfile changes whenever the adapter is linked in.
+      - uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-conformance-${{ runner.os }}-${{ inputs.payload_tag || hashFiles('package.json') }}
+          restore-keys: pnpm-store-conformance-${{ runner.os }}-
+      - name: Run Payload's suites
+        run: node scripts/conformance/run.mjs ${{ matrix.group }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conformance-${{ matrix.group }}
+          path: .conformance/results/${{ matrix.group }}.json
+          if-no-files-found: ignore

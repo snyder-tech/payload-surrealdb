@@ -1,0 +1,12 @@
+--- a/test/versions/helpers.ts	2026-11-02 18:08:39.546571838 +0500
++++ b/test/versions/helpers.ts	2026-11-02 18:08:39.572027335 +0500
+@@ -150,7 +150,8 @@
+   globalSlug: GlobalSlug
+   payload: Payload
+ }) {
+-  if (isMongoose(payload)) {
++  // Only the drizzle adapters have a drizzle instance to delete from; every other adapter clears the global through the public API
++  if (!('drizzle' in payload.db)) {
+     await payload.db.updateGlobal({
+       slug: globalSlug,
+       data: {
